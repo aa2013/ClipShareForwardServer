@@ -52,7 +52,7 @@
   </v-card>
 </template>
 <script setup lang="ts">
-import {computed, onMounted, onUnmounted, ref, watch, watchEffect} from "vue";
+import {onMounted, onUnmounted, ref} from "vue";
 import {Log, LogLevel} from "@/types";
 import * as logReq from '@/network/details/log'
 

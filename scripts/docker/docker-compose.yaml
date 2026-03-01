@@ -1,0 +1,13 @@
+version: "3"
+services:
+  clipshare-forward-server:
+    image: coclyun/clipshare-forward-server:1.1
+    container_name: clipshare-forward-server
+    restart: always
+    ports:
+      - "8180:80"
+      - "9283:9283"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data:/data

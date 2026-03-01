@@ -150,7 +150,7 @@
                            variant="text"
                            elevation="0"
                            icon="mdi-identifier"
-                           @click="()=>showDevIdDialog(item.targetId!,item.targetName)"
+                           @click="()=>showDevIdDialog(item.targetId!,item.targetName!)"
                     />
                   </template>
 
