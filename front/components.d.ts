@@ -17,6 +17,7 @@ declare module 'vue' {
     GenPlanKeysDialog: typeof import('./src/components/plan/GenPlanKeysDialog.vue')['default']
     GlobalDialog: typeof import('./src/components/global/GlobalDialog.vue')['default']
     GlobalSnackbar: typeof import('./src/components/global/GlobalSnackbar.vue')['default']
+    LanguageSelector: typeof import('./src/components/LanguageSelector.vue')['default']
     NetworkChart: typeof import('./src/components/charts/NetworkChart.vue')['default']
     Plan: typeof import('./src/components/plan/Plan.vue')['default']
     PlanDialog: typeof import('./src/components/plan/PlanDialog.vue')['default']

@@ -1,9 +1,9 @@
 <template>
   <v-card class="pa-2 h-[100%] flex flex-col" flat>
     <v-card-title class="d-flex align-center">
-      <v-icon icon="mdi-cloud-key-outline" class="mr-2" color="primary"/>
-      密钥管理
-      <v-spacer/>
+      <v-icon icon="mdi-cloud-key-outline" class="mr-2" color="primary" />
+      {{ t('planKeys.title') }}
+      <v-spacer />
       <div class="w-[150px]">
         <v-autocomplete
           clearable
@@ -11,43 +11,39 @@
           v-model="planId"
           hide-no-data
           hide-details
-          label="套餐选择"
+          :label="t('planKeys.planSelect')"
           density="compact"
-          placeholder="请选择套餐"
+          :placeholder="t('planKeys.planSelectPlaceholder')"
           :items="plans"
           variant="outlined"
           :loading="!plans"
         />
       </div>
-
     </v-card-title>
-    <v-divider/>
+    <v-divider />
     <div class="flex-1-0 overflow-auto h-0" ref="tableContainer">
       <v-data-table-server
         v-model:page="pageData.page"
         :items-per-page="pageData.itemsPerPage"
         width="100%"
-        items-per-page-text="分页数量 "
+        :items-per-page-text="t('pagination.itemsPerPage')"
         :headers="tableHeaders"
         :items="keys"
-        :height="tableHeight||tableContainer?.offsetHeight"
-        no-data-text="暂无数据"
+        :height="tableHeight || tableContainer?.offsetHeight"
+        :no-data-text="t('common.noData')"
         :fixed-header="true"
         :loading="!keys"
         multi-sort
         :items-length="pageData.total"
-        @update:sortBy="(sortBy)=>sortOptions=sortBy"
+        @update:sortBy="(sortBy) => sortOptions = sortBy"
         sticky
       >
-        <template v-slot:item.key="{ item }">
-          <v-btn prepend-icon="mdi-eye" class="cursor-pointer"
-                 color="primary" variant="text"
-                 @click="()=>showKeyDialog(item.key)"
-          >
-            查看
+        <template #item.key="{ item }">
+          <v-btn prepend-icon="mdi-eye" class="cursor-pointer" color="primary" variant="text" @click="() => showKeyDialog(item.key)">
+            {{ t('common.view') }}
           </v-btn>
         </template>
-        <template v-slot:item.enable="{ item }">
+        <template #item.enable="{ item }">
           <v-switch
             density="comfortable"
             color="primary"
@@ -55,20 +51,18 @@
             :loading="statusLoading[item.id]"
             hide-details
             inset
-            @update:modelValue="(value:boolean|null)=>onKeyStatusChanged(item,!!value)"
+            @update:modelValue="(value: boolean | null) => onKeyStatusChanged(item, !!value)"
           />
         </template>
-        <template v-slot:bottom>
-
-        </template>
-        <template v-slot:loading>
+        <template #bottom></template>
+        <template #loading>
           <v-skeleton-loader type="table-row@20"></v-skeleton-loader>
         </template>
       </v-data-table-server>
     </div>
     <div class="flex flex-wrap justify-between items-center ga-4 pa-2">
       <div>
-        共 {{ pageData.total }} 条数据
+        {{ t('common.totalItems', { count: pageData.total }) }}
       </div>
       <div class="flex overflow-auto items-center">
         <div class="min-w-[120px]">
@@ -76,85 +70,80 @@
             hide-details
             color="primary"
             density="compact"
-            label="分页数量"
+            :label="t('pagination.itemsPerPage')"
             v-model="pageData.itemsPerPage"
             :items="pageData.pageItems"
             variant="outlined"
           />
         </div>
-        <v-pagination
-          active-color="primary"
-          show-first-last-page
-          v-model="pageData.page"
-          :length="pageCnt"
-          total-visible="5"
-        />
-
+        <v-pagination active-color="primary" show-first-last-page v-model="pageData.page" :length="pageCnt" total-visible="5" />
       </div>
     </div>
   </v-card>
 </template>
 <script setup lang="ts">
-import {computed, onMounted, onUnmounted, ref, watch} from "vue";
-import {AutoCompletedItem, PlanKey, TableSortOptions} from "@/types";
-import {useRoute} from 'vue-router';
+import { t } from '@/i18n'
 import * as planKeysReq from '@/network/details/planKeys'
 import * as planReq from '@/network/details/plan'
-import {useGlobalDialog} from '@/stores/dialog'
-import {useGlobalSnackbar} from '@/stores/snackbar'
+import { useGlobalDialog } from '@/stores/dialog'
+import { useGlobalSnackbar } from '@/stores/snackbar'
+import { AutoCompletedItem, PlanKey, TableSortOptions } from '@/types'
 import useClipboard from 'vue-clipboard3'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
-const {toClipboard} = useClipboard()
+const { toClipboard } = useClipboard()
+const { showGlobalDialog } = useGlobalDialog()
+const { showSnackbar } = useGlobalSnackbar()
 
-const {showGlobalDialog} = useGlobalDialog()
-const {showSnackbar} = useGlobalSnackbar()
-const tableHeaders = [
+const tableHeaders = computed<any[]>(() => [
   {
-    title: 'id',
+    title: t('common.id'),
     align: 'start',
     key: 'id',
     minWidth: '80px',
   },
   {
-    title: '套餐名称',
+    title: t('planKeys.planName'),
     align: 'start',
     key: 'planName',
     minWidth: '115px',
-    sortable: false
+    sortable: false,
   },
   {
-    title: '密钥',
+    title: t('common.key'),
     align: 'center',
     key: 'key',
     minWidth: '100px',
-    sortable: false
+    sortable: false,
   },
   {
-    title: '状态',
+    title: t('common.status'),
     align: 'start',
     key: 'enable',
-    minWidth: '100px'
+    minWidth: '100px',
   },
   {
-    title: '首次使用时间',
+    title: t('planKeys.firstUseTime'),
     align: 'start',
     key: 'useAt',
-    minWidth: '206px'
+    minWidth: '206px',
   },
   {
-    title: '创建时间',
+    title: t('common.createdAt'),
     align: 'start',
     key: 'createdAt',
-    minWidth: '206px'
+    minWidth: '206px',
   },
   {
-    title: '备注',
+    title: t('common.remark'),
     align: 'start',
     key: 'content',
     minWidth: '100px',
-    sortable: false
+    sortable: false,
   },
-] as any[]
+])
+
 const keys = ref<PlanKey[]>()
 const tableContainer = ref<HTMLElement>()
 const tableHeight = ref<number>()
@@ -164,29 +153,34 @@ const onWindowResize = () => {
 }
 const pageData = ref({
   page: 1,
-  pageItems: [10, 20, 50, 100,],
+  pageItems: [10, 20, 50, 100],
   itemsPerPage: 20,
-  total: 0
+  total: 0,
 })
-const route = useRoute();
+const route = useRoute()
 const pageCnt = computed(() => Math.ceil(pageData.value.total / pageData.value.itemsPerPage))
 const planId = ref<string>()
 const plans = ref<AutoCompletedItem[]>()
 const statusLoading = ref<Record<string, any>>({})
+
 watch(() => route.params.planId, (newId) => {
   planId.value = newId as string
   plans.value = undefined
   fetchPlans()
   fetchPlanKeys()
 })
+
 watch(() => [pageData.value.page, pageData.value.itemsPerPage, sortOptions.value], () => {
   fetchPlanKeys()
 })
+
 const onKeyStatusChanged = (item: PlanKey, value: boolean) => {
   statusLoading.value[item.id] = true
   planKeysReq.updateStatus(item.id, value).then(res => {
     showSnackbar({
-      text: `${value ? '启用' : '停用'}${res ? '成功' : '失败'}`
+      text: value
+        ? t('common.enableResult', { result: res ? t('common.success') : t('common.operationFailed') })
+        : t('common.disableResult', { result: res ? t('common.success') : t('common.operationFailed') }),
     }, !res)
     if (!res) {
       item.enable = !value
@@ -198,63 +192,63 @@ const onKeyStatusChanged = (item: PlanKey, value: boolean) => {
     delete statusLoading.value[item.id]
   })
 }
+
 const fetchPlans = () => {
   planReq.getPlans().then(list => {
-    plans.value = list.map(item => ({title: item.name, value: item.id!}))
+    plans.value = list.map(item => ({ title: item.name, value: item.id! }))
   })
 }
+
 const fetchPlanKeys = () => {
   const sorts = JSON.parse(JSON.stringify(sortOptions.value)) as TableSortOptions[]
   sorts.forEach(sort => {
-    //将所有大写转为下划线和小写字母，如 planId -> plan_id
     sort.key = sort.key.replace(/[A-Z]/g, match => `_${match.toLowerCase()}`)
   })
   planKeysReq.list({
     pageNum: pageData.value.page,
     pageSize: pageData.value.itemsPerPage,
-    planId: !planId.value || planId.value as unknown == false ? undefined : planId.value,
-    sorts: sorts,
+    planId: !planId.value || planId.value as unknown === false ? undefined : planId.value,
+    sorts,
   }).then(list => {
     pageData.value.total = list.total
     keys.value = list.rows
   })
 }
+
 onMounted(() => {
   fetchPlans()
   fetchPlanKeys()
   const id = route.params.planId as string
-  planId.value = ((id as unknown as boolean) == false || !id) ? undefined : id
+  planId.value = ((id as unknown as boolean) === false || !id) ? undefined : id
   window.addEventListener('resize', onWindowResize)
 })
+
 onUnmounted(() => {
   window.removeEventListener('resize', onWindowResize)
 })
+
 const showKeyDialog = (key: string) => {
   showGlobalDialog({
-    title: "密钥",
+    title: t('planKeys.showKeyTitle'),
     msg: key,
-    cancelBtnText: '复制',
+    cancelBtnText: t('common.copy'),
     cancelBtnColor: 'primary',
     showCancelBtn: true,
     onCancel() {
       setTimeout(() => {
-        //由于模态框焦点问题，延迟复制
         toClipboard(key).then(() => {
           showSnackbar({
-            text: "复制成功"
+            text: t('common.copySucceeded'),
           })
         }).catch(err => {
           showSnackbar({
-            text: "复制失败",
+            text: t('common.copyFailed'),
           }, true)
           console.log(err)
         })
       }, 500)
     },
-    okBtnText: '关闭'
+    okBtnText: t('common.close'),
   })
 }
 </script>
-<style scoped>
-
-</style>

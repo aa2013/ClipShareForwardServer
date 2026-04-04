@@ -1,33 +1,35 @@
-import {defineStore} from 'pinia'
-import {computed, ref} from "vue";
-import {GlobalDialogProps} from "@/types";
+import { defineStore } from 'pinia'
+import { computed, ref } from 'vue'
+import { t } from '@/i18n'
+import { GlobalDialogProps } from '@/types'
 
 export const useGlobalDialog = defineStore('global-dialog', () => {
-
   const dialogShow = ref(false)
   const okLoading = ref(false)
-  const defaultProps: GlobalDialogProps = {
+
+  const getDefaultProps = (): GlobalDialogProps => ({
     title: '',
     icon: 'mdi-information-outline',
     iconColor: 'primary',
     msg: '',
-    cancelBtnText: '取消',
+    cancelBtnText: t('common.cancel'),
     cancelBtnColor: undefined,
     showCancelBtn: false,
-    okBtnText: '确定',
+    okBtnText: t('common.confirm'),
     okBtnColor: 'primary',
-    onCancel: () => {
-    },
-    onOk: () => {
-    },
+    onCancel: () => {},
+    onOk: () => {},
     persistent: false,
-  }
-  const dialogProps = ref<GlobalDialogProps>(defaultProps)
+  })
+
+  const dialogProps = ref<GlobalDialogProps>(getDefaultProps())
+
   const onDialogClose = () => {
     dialogShow.value = false
     const onCancel = dialogProps.value.onCancel
     onCancel && onCancel()
   }
+
   const onDialogOk = () => {
     const onOk = dialogProps.value.onOk
     if (!onOk) {
@@ -45,14 +47,22 @@ export const useGlobalDialog = defineStore('global-dialog', () => {
       dialogShow.value = false
     }
   }
+
   const isOkLoading = computed(() => okLoading)
   const globalDialogProps = computed(() => dialogProps.value)
+
   const showGlobalDialog = (props: GlobalDialogProps) => {
     okLoading.value = false
-    dialogProps.value = Object.assign({...defaultProps}, props)
+    dialogProps.value = Object.assign({ ...getDefaultProps() }, props)
     dialogShow.value = true
   }
+
   return {
-    dialogShow, onDialogClose, onDialogOk, showGlobalDialog, globalDialogProps, isOkLoading
+    dialogShow,
+    onDialogClose,
+    onDialogOk,
+    showGlobalDialog,
+    globalDialogProps,
+    isOkLoading,
   }
 })

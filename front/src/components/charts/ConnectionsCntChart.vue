@@ -1,12 +1,12 @@
 <template>
-  <BaseChart id="connection-cnt-chart" :options="options"/>
+  <BaseChart id="connection-cnt-chart" :options="options" />
 </template>
 <script setup lang="ts">
-import {computed, defineModel} from 'vue'
-
-import BaseChart from "@/components/charts/BaseChart.vue";
-import * as echarts from "echarts";
-import {ConnectionChartData} from "@/types";
+import { t } from '@/i18n'
+import { ConnectionChartData } from '@/types'
+import * as echarts from 'echarts'
+import { computed, defineModel } from 'vue'
+import BaseChart from '@/components/charts/BaseChart.vue'
 
 const data = defineModel<ConnectionChartData[]>({
   get(value) {
@@ -14,10 +14,11 @@ const data = defineModel<ConnectionChartData[]>({
       return []
     }
     return value
-  }
+  },
 })
+
 const options = computed<echarts.EChartsOption>(() => {
-  const totalCntData = data.value!.map(item => item.baseCnt+item.dataSyncCnt+item.fileSyncCnt)
+  const totalCntData = data.value!.map(item => item.baseCnt + item.dataSyncCnt + item.fileSyncCnt)
   const baseCntData = data.value!.map(item => item.baseCnt)
   const dataSyncCntData = data.value!.map(item => item.dataSyncCnt)
   const fileSyncCntData = data.value!.map(item => item.fileSyncCnt)
@@ -27,18 +28,23 @@ const options = computed<echarts.EChartsOption>(() => {
       trigger: 'axis',
     },
     legend: {
-      data: ['总连接数','设备连接数', '数据同步连接数', '文件同步连接数']
+      data: [
+        t('charts.totalConnections'),
+        t('charts.deviceConnections'),
+        t('charts.dataSyncConnections'),
+        t('charts.fileSyncConnections'),
+      ],
     },
     grid: {
       left: '3%',
       right: '4%',
       bottom: '3%',
-      containLabel: true
+      containLabel: true,
     },
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: data.value!.map(item => item.time)
+      data: data.value!.map(item => item.time),
     },
     yAxis: {
       type: 'value',
@@ -47,30 +53,26 @@ const options = computed<echarts.EChartsOption>(() => {
     },
     series: [
       {
-        name: '总连接数',
+        name: t('charts.totalConnections'),
         type: 'line',
-        data: totalCntData
+        data: totalCntData,
       },
       {
-        name: '设备连接数',
+        name: t('charts.deviceConnections'),
         type: 'line',
-        data: baseCntData
+        data: baseCntData,
       },
       {
-        name: '数据同步连接数',
+        name: t('charts.dataSyncConnections'),
         type: 'line',
-        data: dataSyncCntData
+        data: dataSyncCntData,
       },
       {
-        name: '文件同步连接数',
+        name: t('charts.fileSyncConnections'),
         type: 'line',
-        data: fileSyncCntData
+        data: fileSyncCntData,
       },
-    ]
+    ],
   }
 })
 </script>
-
-<style scoped>
-
-</style>

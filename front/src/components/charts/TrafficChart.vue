@@ -1,14 +1,14 @@
 <template>
-  <BaseChart id="flow-usage-chart" :options="options"/>
+  <BaseChart id="flow-usage-chart" :options="options" />
 </template>
 <script setup lang="ts">
-
-import BaseChart from "@/components/charts/BaseChart.vue";
-import * as echarts from "echarts";
-import {CallbackDataParams, TopLevelFormatterParams} from "echarts/types/dist/shared";
-import {computed, defineModel} from "vue";
-import {TrafficChartData} from "@/types";
+import BaseChart from '@/components/charts/BaseChart.vue'
+import { t } from '@/i18n'
+import { TrafficChartData } from '@/types'
 import * as commonUtil from '@/utils/common'
+import * as echarts from 'echarts'
+import { CallbackDataParams, TopLevelFormatterParams } from 'echarts/types/dist/shared'
+import { computed, defineModel } from 'vue'
 
 const data = defineModel<TrafficChartData[]>({
   get(value) {
@@ -16,8 +16,9 @@ const data = defineModel<TrafficChartData[]>({
       return []
     }
     return value
-  }
+  },
 })
+
 const options = computed<echarts.EChartsOption>(() => {
   const trafficData = data.value!.map(item => item.traffic)
   const maxVal = Math.ceil(Math.max(...trafficData) * 1.2)
@@ -29,55 +30,51 @@ const options = computed<echarts.EChartsOption>(() => {
         const params = p as (CallbackDataParams & { axisValueLabel: string })[]
         let html = params[0].axisValueLabel
         html += params.map(item => {
-          const marker = item.marker;
-          const seriesName = item.seriesName;
-          const value = parseInt(item.value?.toString() ?? '0');
+          const marker = item.marker
+          const seriesName = item.seriesName
+          const value = parseInt(item.value?.toString() ?? '0')
           return `
             <br>
             ${marker} ${seriesName}&nbsp;&nbsp;&nbsp;&nbsp;${commonUtil.numberToSizeStr(value)}
         `
         })
         return html
-      }
+      },
     },
     legend: {
-      data: ['当前连接使用量']
+      data: [t('charts.currentConnectionTraffic')],
     },
     grid: {
       left: '3%',
       right: '4%',
       bottom: '3%',
-      containLabel: true
+      containLabel: true,
     },
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: data.value!.map(item => item.time)
+      data: data.value!.map(item => item.time),
     },
     yAxis: {
       type: 'value',
       min: 0,
       max: maxVal,
-      name:'单位：'+commonUtil.numberToSizeStr(maxVal,maxVal).slice(-2),
+      name: t('charts.unit', { unit: commonUtil.numberToSizeStr(maxVal, maxVal).slice(-2) }),
       axisLabel: {
         formatter: function (value) {
           const label = commonUtil.numberToSizeStr(value, maxVal)
           const match = label.match(/\d+/)
-          return parseInt(match![0]) + ""
-        }
-      }
+          return `${parseInt(match![0])}`
+        },
+      },
     },
     series: [
       {
-        name: '当前连接使用量',
+        name: t('charts.currentConnectionTraffic'),
         type: 'line',
-        data: trafficData
+        data: trafficData,
       },
-    ]
+    ],
   }
 })
 </script>
-
-<style scoped>
-
-</style>
