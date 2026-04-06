@@ -232,10 +232,15 @@ func onBaseTypeConnected(conn net.Conn, msgInfo connListenerInfo, packetReader *
 			onBaseConnReceived(selfId, baseRecData)
 			continue
 		}
-		logs.Error("read data failed: ", err, ".self: ", selfId)
+		logs.Error("read data failed: ", err, ". self: ", selfId)
 		//断开基础连接
 		delete(BaseSocketsMap, selfId)
-		_ = conn.Close()
+		tcpConn, ok := conn.(*net.TCPConn)
+		if ok {
+		    tcpConn.SetLinger(0) // 立即发送 RST
+		}
+		err = conn.Close()
+		logs.Error("close result: ", err, ". self: ", selfId, ". tcpConn ok: ", ok)
 		//断开转发连接
 		for key := range DataSyncSocketsMap {
 			if strings.HasSuffix(key, selfId) || strings.HasPrefix(key, selfId) {
