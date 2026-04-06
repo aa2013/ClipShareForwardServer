@@ -89,4 +89,4 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/clipshare-forward-server:test
           build-args: |
-            VERSION=${{ steps.version.outputs.version }}
+            VERSION=test
