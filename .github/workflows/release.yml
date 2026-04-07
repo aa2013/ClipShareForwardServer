@@ -87,6 +87,6 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/clipshare-forward-server:test
+            ${{ secrets.DOCKERHUB_USERNAME }}/clipshare-forward-server:${{ steps.version.outputs.version }}
           build-args: |
-            VERSION=test
+            VERSION=${{ steps.version.outputs.version }}
