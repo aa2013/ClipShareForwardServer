@@ -6,19 +6,20 @@ import (
 	"clipshare/types"
 	"clipshare/utils"
 	"crypto/md5"
+	"embed"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"io/fs"
 	"math/rand"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
-	"embed"
-	"io/fs"
 )
 
 const authKey = "Authorization"
 const version = "1.1.2"
+
 //go:embed all:dist/*
 var embeddedFiles embed.FS
 var lastOperationTime *time.Time = nil
@@ -28,13 +29,13 @@ func StartWebServer() {
 	r := gin.Default()
 	r.Use(GlobalExceptionMiddleware(), Cors())
 
-    distFS, _ := fs.Sub(embeddedFiles, "dist")
-    fileServer := http.FileServer(http.FS(distFS))
-    r.NoRoute(func(c *gin.Context) {
-        fileServer.ServeHTTP(c.Writer, c.Request)
-    })
+	distFS, _ := fs.Sub(embeddedFiles, "dist")
+	fileServer := http.FileServer(http.FS(distFS))
+	r.NoRoute(func(c *gin.Context) {
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	})
 
-    api := r.Group("/api")
+	api := r.Group("/api")
 	api.POST("/login", login)
 	api.GET("/version", getVersion)
 
@@ -83,16 +84,17 @@ func logout(c *gin.Context) {
 	successResult(c, nil)
 }
 func getConnectionStatus(c *gin.Context) {
-	baseConnections := make([]types.ConnectionStatusDto, 0, len(forward.BaseSocketsMap))
-	for _, v := range forward.BaseSocketsMap {
+	baseSockets, dataSyncSockets, fileSyncSockets := forward.SnapshotSocketMaps()
+	baseConnections := make([]types.ConnectionStatusDto, 0, len(baseSockets))
+	for _, v := range baseSockets {
 		baseConnections = append(baseConnections, v.ToDto())
 	}
-	dataSyncConnections := make([]types.ConnectionStatusDto, 0, len(forward.DataSyncSocketsMap))
-	for _, v := range forward.DataSyncSocketsMap {
+	dataSyncConnections := make([]types.ConnectionStatusDto, 0, len(dataSyncSockets))
+	for _, v := range dataSyncSockets {
 		dataSyncConnections = append(dataSyncConnections, v.ToDto())
 	}
-	fileSyncConnections := make([]types.ConnectionStatusDto, 0, len(forward.SendFileConnMap))
-	for _, v := range forward.SendFileConnMap {
+	fileSyncConnections := make([]types.ConnectionStatusDto, 0, len(fileSyncSockets))
+	for _, v := range fileSyncSockets {
 		fileSyncConnections = append(fileSyncConnections, v.ToDto())
 	}
 	//createTime desc
@@ -116,14 +118,8 @@ func forcedDisconnection(c *gin.Context) {
 	types.BindJsonData(c, &item)
 	var skt *types.SocketInfo
 	var hasConn bool
-	switch item.ConnType {
-	case forward.Base:
-		skt, hasConn = forward.BaseSocketsMap[item.Key]
-	case forward.FileSync:
-		skt, hasConn = forward.SendFileConnMap[item.Key]
-	case forward.DataSync:
-		skt, hasConn = forward.DataSyncSocketsMap[item.Key]
-	default:
+	skt, hasConn = forward.GetSocketInfo(item.ConnType, item.Key)
+	if item.ConnType != forward.Base && item.ConnType != forward.FileSync && item.ConnType != forward.DataSync {
 		panic("UnSupport connType: " + item.ConnType)
 	}
 	if !hasConn {
@@ -188,7 +184,7 @@ func updateConfig(c *gin.Context) {
 	successResult(c, true)
 }
 func getChartsData(c *gin.Context) {
-	successResult(c, forward.ChartData)
+	successResult(c, forward.GetChartData())
 }
 func getLogs(c *gin.Context) {
 	timeLayout := "2006-01-02 15:04:05.000"
