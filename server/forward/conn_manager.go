@@ -29,7 +29,12 @@ func isUnlimitedDevice(devId string) bool {
 	return slices.Contains(types.AppConfig.GetUnlimitedDeviceIds(), devId)
 }
 func GetDataSyncTransferLimited(devId string) int {
+	socketMapsMu.RLock()
 	sktInfo := BaseSocketsMap[devId]
+	socketMapsMu.RUnlock()
+	if sktInfo == nil {
+		return 0
+	}
 	if sktInfo.Unlimited {
 		return 0
 	}
@@ -186,7 +191,8 @@ func onBaseTypeConnected(conn net.Conn, msgInfo connListenerInfo, packetReader *
 		if pt.DeviceLimit != nil {
 			//判断是否超出设备连接限制
 			cnt := uint(0)
-			for _, baseConn := range BaseSocketsMap {
+			baseSockets, _, _ := SnapshotSocketMaps()
+			for _, baseConn := range baseSockets {
 				if baseConn.AccessKey == nil {
 					continue
 				}
@@ -210,6 +216,7 @@ func onBaseTypeConnected(conn net.Conn, msgInfo connListenerInfo, packetReader *
 		db.InitializeKeyFirstUseTime(key)
 		firstUseTime = db.GetFistUseTime(key)
 	}
+	socketMapsMu.Lock()
 	oldSkt, connected := BaseSocketsMap[selfId]
 	if connected {
 		logs.Warn("already connected:", selfId)
@@ -225,6 +232,7 @@ func onBaseTypeConnected(conn net.Conn, msgInfo connListenerInfo, packetReader *
 		KeyFirstUseAt: firstUseTime,
 		PlanType:      planType,
 	}
+	socketMapsMu.Unlock()
 	//保持连接
 	for {
 		baseRecData, err := packetReader.ReadPacket()
@@ -234,6 +242,7 @@ func onBaseTypeConnected(conn net.Conn, msgInfo connListenerInfo, packetReader *
 		}
 		logs.Error("read data failed: ", err, ". self: ", selfId)
 		//断开基础连接
+		socketMapsMu.Lock()
 		delete(BaseSocketsMap, selfId)
 		tcpConn, ok := conn.(*net.TCPConn)
 		if ok {
@@ -257,6 +266,7 @@ func onBaseTypeConnected(conn net.Conn, msgInfo connListenerInfo, packetReader *
 				delete(SendFileConnMap, key)
 			}
 		}
+		socketMapsMu.Unlock()
 		return
 	}
 }
@@ -272,7 +282,14 @@ func onSendFileTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 		sendData, _ := json.Marshal(map[string]string{
 			"type": FileSyncNotAllowed,
 		})
-		err := sendPacket(BaseSocketsMap[selfId].Conn, sendData)
+		socketMapsMu.RLock()
+		baseSkt := BaseSocketsMap[selfId]
+		socketMapsMu.RUnlock()
+		if baseSkt == nil {
+			_ = conn.Close()
+			return
+		}
+		err := sendPacket(baseSkt.Conn, sendData)
 		if err != nil {
 			logs.Error("send data failed: ", err, "self: ", selfId)
 			_ = conn.Close()
@@ -308,13 +325,16 @@ func onSendFileTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 	if !hasUserId {
 		logs.Error("userId not found")
 	}
+	socketMapsMu.RLock()
 	targetConn, hasTargetConn := BaseSocketsMap[targetId]
+	socketMapsMu.RUnlock()
 	if !hasTargetConn {
 		logs.Error("The file recipient is not online:", targetId)
 		_ = conn.Close()
 		return
 	}
 	//endregion
+	socketMapsMu.Lock()
 	SendFileConnMap[selfId] = &types.SocketInfo{
 		Self:       types.DevInfo{DevId: selfId, Platform: platform, AppVersion: appVersion, DevName: msgInfo.selfDevName},
 		Target:     &targetConn.Self,
@@ -323,6 +343,7 @@ func onSendFileTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 		Conn:       conn,
 		Unlimited:  isUnlimitedDevice(selfId),
 	}
+	socketMapsMu.Unlock()
 	sendData, _ := json.Marshal(map[string]string{
 		"type":     sendFile,
 		"sender":   selfId,
@@ -334,7 +355,9 @@ func onSendFileTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 	err := sendPacket(targetConn.Conn, sendData)
 	if err != nil {
 		logs.Error("send data failed: ", err, "self: ", selfId)
+		socketMapsMu.Lock()
 		delete(SendFileConnMap, targetId)
+		socketMapsMu.Unlock()
 		_ = conn.Close()
 		return
 	}
@@ -353,7 +376,9 @@ func onRecFileTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 		logs.Error("want to receive file but fileId not exist:", target)
 		return
 	}
+	socketMapsMu.RLock()
 	senderBaseConn, _ := BaseSocketsMap[target]
+	socketMapsMu.RUnlock()
 	sendData, _ := json.Marshal(map[string]string{
 		"type":   fileReceiverConnected,
 		"fileId": fileId,
@@ -364,14 +389,16 @@ func onRecFileTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 		_ = conn.Close()
 	} else {
 		//转发连接
+		socketMapsMu.RLock()
 		senderConn, hasSenderConn := SendFileConnMap[target]
+		socketMapsMu.RUnlock()
 		if !hasSenderConn {
 			logs.Warn("want to receive file but sender not exist, path: ", selfId+" -> "+target)
 			return
 		}
 		rate := GetFileSyncTransferLimited(senderConn.Self.DevId)
 		writer := ratelimiter.NewLimitedWriterCallBack(conn, rate, func(cnt int) {
-			senderConn.TotalBytes += int64(cnt)
+			senderConn.AddTotalBytes(int64(cnt))
 		})
 		senderConn.LimitedWriter = writer
 		_, err = io.Copy(writer, senderConn.Conn)
@@ -382,13 +409,17 @@ func onRecFileTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 		} else {
 			logs.Info("sync file failed: ", err, ", ", target+" -> "+selfId)
 		}
+		socketMapsMu.Lock()
 		delete(SendFileConnMap, target)
 		delete(SendFileConnMap, selfId)
+		socketMapsMu.Unlock()
 	}
 }
 func onDataSyncTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 	selfId := msgInfo.selfId
+	socketMapsMu.RLock()
 	selfSkt, exists := BaseSocketsMap[selfId]
+	socketMapsMu.RUnlock()
 	if !exists {
 		_ = conn.Close()
 		logs.Warn(selfId, "base conn not exists")
@@ -405,9 +436,11 @@ func onDataSyncTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 		Conn:       conn,
 		Unlimited:  isUnlimitedDevice(selfId),
 	}
+	socketMapsMu.Lock()
 	DataSyncSocketsMap[syncTargetKey] = &sktInfo
 	//检查对向连接
 	syncSelfConn, hasConn := DataSyncSocketsMap[syncSelfKey]
+	socketMapsMu.Unlock()
 	if hasConn {
 		syncSelfConn.Target = &sktInfo.Self
 		sktInfo.Target = &syncSelfConn.Self
@@ -428,16 +461,20 @@ func onDataSyncTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 		if err != nil {
 			logs.Error("send data failed: ", err, ", self: ", selfId)
 			_ = conn.Close()
+			socketMapsMu.Lock()
 			delete(DataSyncSocketsMap, selfId+"->"+targetId)
 			delete(DataSyncSocketsMap, targetId+"->"+selfId)
+			socketMapsMu.Unlock()
 			return
 		}
 		err = sendPacket(syncSelfConn.Conn, sendData)
 		if err != nil {
 			logs.Error("send data failed: ", err, ", self: ", selfId)
 			_ = syncSelfConn.Conn.Close()
+			socketMapsMu.Lock()
 			delete(DataSyncSocketsMap, selfId+"->"+targetId)
 			delete(DataSyncSocketsMap, targetId+"->"+selfId)
+			socketMapsMu.Unlock()
 			return
 		}
 		wg.Wait()
@@ -453,9 +490,13 @@ func onDataSyncTypeConnected(conn net.Conn, msgInfo connListenerInfo) {
 			"type":   requestConnect,
 			"sender": selfId,
 		})
+		socketMapsMu.RLock()
 		targetAliveSocket, targetIsOnline := BaseSocketsMap[targetId]
+		socketMapsMu.RUnlock()
 		if !targetIsOnline {
+			socketMapsMu.Lock()
 			delete(DataSyncSocketsMap, syncTargetKey)
+			socketMapsMu.Unlock()
 			_ = conn.Close()
 			return
 		}
@@ -499,9 +540,18 @@ func forward(source net.Conn, target net.Conn, sourceId string, targetId string,
 	logs.Info("forward ready:", "device1:", sourceId, "device2:", targetId)
 	_, err = 0, nil
 	targetWriter := ratelimiter.NewLimitedWriterCallBack(target, rate, func(cnt int) {
-		DataSyncSocketsMap[sourceId+"->"+targetId].TotalBytes += int64(cnt)
+		socketMapsMu.RLock()
+		skt := DataSyncSocketsMap[sourceId+"->"+targetId]
+		socketMapsMu.RUnlock()
+		if skt != nil {
+			skt.AddTotalBytes(int64(cnt))
+		}
 	})
-	DataSyncSocketsMap[sourceId+"->"+targetId].LimitedWriter = targetWriter
+	socketMapsMu.Lock()
+	if skt := DataSyncSocketsMap[sourceId+"->"+targetId]; skt != nil {
+		skt.LimitedWriter = targetWriter
+	}
+	socketMapsMu.Unlock()
 	_, err = io.Copy(targetWriter, source)
 	if err == nil {
 		logs.Info("forward finished.", "source:", sourceId, "target:", targetId)
@@ -511,8 +561,10 @@ func forward(source net.Conn, target net.Conn, sourceId string, targetId string,
 	_ = source.Close()
 	_ = target.Close()
 	//清除连接
+	socketMapsMu.Lock()
 	delete(DataSyncSocketsMap, sourceId+"->"+targetId)
 	delete(DataSyncSocketsMap, targetId+"->"+sourceId)
+	socketMapsMu.Unlock()
 }
 func onBaseConnReceived(selfId string, data []byte) {
 	var msg map[string]string
@@ -527,6 +579,8 @@ func onBaseConnReceived(selfId string, data []byte) {
 	switch msgType {
 	case cancelSendFile:
 		targetId := msg["targetId"]
+		socketMapsMu.Lock()
 		delete(SendFileConnMap, targetId)
+		socketMapsMu.Unlock()
 	}
 }

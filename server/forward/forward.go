@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"sync"
 	"time"
 )
 
@@ -24,6 +25,8 @@ var DataSyncSocketsMap = make(map[string]*types.SocketInfo)
 // 文件传输连接
 var lastSendFileConnCnt = 0
 var SendFileConnMap = make(map[string]*types.SocketInfo)
+var socketMapsMu sync.RWMutex
+var chartDataMu sync.RWMutex
 
 var ChartData = types.ChartData{
 	NetSpeed: types.NetWorkChartData{
@@ -55,6 +58,48 @@ const (
 )
 
 var logs *utils.LogManager
+
+func SnapshotSocketMaps() (base []*types.SocketInfo, dataSync []*types.SocketInfo, fileSync []*types.SocketInfo) {
+	socketMapsMu.RLock()
+	defer socketMapsMu.RUnlock()
+	base = make([]*types.SocketInfo, 0, len(BaseSocketsMap))
+	for _, skt := range BaseSocketsMap {
+		base = append(base, skt)
+	}
+	dataSync = make([]*types.SocketInfo, 0, len(DataSyncSocketsMap))
+	for _, skt := range DataSyncSocketsMap {
+		dataSync = append(dataSync, skt)
+	}
+	fileSync = make([]*types.SocketInfo, 0, len(SendFileConnMap))
+	for _, skt := range SendFileConnMap {
+		fileSync = append(fileSync, skt)
+	}
+	return
+}
+
+func GetSocketInfo(connType string, key string) (*types.SocketInfo, bool) {
+	socketMapsMu.RLock()
+	defer socketMapsMu.RUnlock()
+	switch connType {
+	case Base:
+		skt, ok := BaseSocketsMap[key]
+		return skt, ok
+	case FileSync:
+		skt, ok := SendFileConnMap[key]
+		return skt, ok
+	case DataSync:
+		skt, ok := DataSyncSocketsMap[key]
+		return skt, ok
+	default:
+		return nil, false
+	}
+}
+
+func GetChartData() types.ChartData {
+	chartDataMu.RLock()
+	defer chartDataMu.RUnlock()
+	return ChartData
+}
 
 // StartForwardServer 启动服务
 func StartForwardServer() {
@@ -157,55 +202,61 @@ func scanSockets() {
 	lastFileSyncBytesMap := make(map[string]int64)
 	curDataSyncBytesMap := make(map[string]int64)
 	curFileSyncBytesMap := make(map[string]int64)
-	for _, v := range DataSyncSocketsMap {
+	baseSockets, dataSyncSockets, fileSyncSockets := SnapshotSocketMaps()
+	for _, v := range dataSyncSockets {
 		//记录上次的流量
+		lastBytes, totalBytes := v.BytesSnapshot()
 		if _, hasData := lastDataSyncBytesMap[v.Self.DevId]; hasData {
-			lastDataSyncBytesMap[v.Self.DevId] += v.LastBytes
+			lastDataSyncBytesMap[v.Self.DevId] += lastBytes
 		} else {
-			lastDataSyncBytesMap[v.Self.DevId] = v.LastBytes
+			lastDataSyncBytesMap[v.Self.DevId] = lastBytes
 		}
 		//更新当前流量
 		v.UpdateSnapshot()
 		//记录当前流量
+		_, totalBytes = v.BytesSnapshot()
 		if _, hasData := curDataSyncBytesMap[v.Self.DevId]; hasData {
-			curDataSyncBytesMap[v.Self.DevId] += v.TotalBytes
+			curDataSyncBytesMap[v.Self.DevId] += totalBytes
 		} else {
-			curDataSyncBytesMap[v.Self.DevId] = v.TotalBytes
+			curDataSyncBytesMap[v.Self.DevId] = totalBytes
 		}
 		dataSyncSpeed += curDataSyncBytesMap[v.Self.DevId] - lastDataSyncBytesMap[v.Self.DevId]
 	}
-	for _, v := range SendFileConnMap {
+	for _, v := range fileSyncSockets {
 		//记录上次的流量
+		lastBytes, totalBytes := v.BytesSnapshot()
 		if _, hasData := lastFileSyncBytesMap[v.Self.DevId]; hasData {
-			lastFileSyncBytesMap[v.Self.DevId] += v.LastBytes
+			lastFileSyncBytesMap[v.Self.DevId] += lastBytes
 		} else {
-			lastFileSyncBytesMap[v.Self.DevId] = v.LastBytes
+			lastFileSyncBytesMap[v.Self.DevId] = lastBytes
 		}
 		v.UpdateSnapshot()
 		//记录当前流量
+		_, totalBytes = v.BytesSnapshot()
 		if _, hasData := curFileSyncBytesMap[v.Self.DevId]; hasData {
-			curFileSyncBytesMap[v.Self.DevId] += v.TotalBytes
+			curFileSyncBytesMap[v.Self.DevId] += totalBytes
 		} else {
-			curFileSyncBytesMap[v.Self.DevId] = v.TotalBytes
+			curFileSyncBytesMap[v.Self.DevId] = totalBytes
 		}
 		fileSyncSpeed += curFileSyncBytesMap[v.Self.DevId] - lastFileSyncBytesMap[v.Self.DevId]
 	}
 	//计算总的
 	var traffic int64
-	for _, v := range BaseSocketsMap {
+	for _, v := range baseSockets {
 		totalBytes := curFileSyncBytesMap[v.Self.DevId] + curDataSyncBytesMap[v.Self.DevId]
-		v.TotalBytes = totalBytes
+		v.SetTotalBytes(totalBytes)
 		traffic += totalBytes
 		v.UpdateSnapshot()
 	}
+	chartDataMu.Lock()
 	ChartData.Traffic = uint64(traffic)
-	if len(BaseSocketsMap) != 0 {
+	if len(baseSockets) != 0 {
 		ChartData.NetSpeed.FileSync = uint64(fileSyncSpeed)
 		ChartData.NetSpeed.DataSync = uint64(dataSyncSpeed)
 	}
-	curBaseConnCnt := len(BaseSocketsMap)
-	curDataSyncConnCnt := len(DataSyncSocketsMap)
-	curSendFileConnCnt := len(SendFileConnMap)
+	curBaseConnCnt := len(baseSockets)
+	curDataSyncConnCnt := len(dataSyncSockets)
+	curSendFileConnCnt := len(fileSyncSockets)
 
 	if lastBaseConnCnt != curBaseConnCnt || lastDataSyncConnCnt != curDataSyncConnCnt || lastSendFileConnCnt != curSendFileConnCnt {
 		// 执行代码
@@ -216,6 +267,7 @@ func scanSockets() {
 		ChartData.ConnectionCnt.FileSyncCnt = uint64(curSendFileConnCnt)
 		ChartData.ConnectionCnt.BaseCnt = uint64(curBaseConnCnt)
 	}
+	chartDataMu.Unlock()
 }
 func startTTLSticker() {
 	ticker := time.NewTicker(5 * time.Minute)
@@ -234,10 +286,7 @@ func sendHeartbeatPeriod() {
 	defer ticker.Stop() // 程序结束前停止 Ticker
 	for {
 		<-ticker.C // 等待下一个间隔
-		baseConns := make([]*types.SocketInfo, 0, len(BaseSocketsMap))
-		for _, skt := range BaseSocketsMap {
-			baseConns = append(baseConns, skt)
-		}
+		baseConns, _, _ := SnapshotSocketMaps()
 		for _, skt := range baseConns {
 			if skt == nil {
 				continue
@@ -252,7 +301,8 @@ func scanKeyTTL() {
 		"type":   check,
 		"result": "The current key has expired",
 	})
-	for _, baseConn := range BaseSocketsMap {
+	baseConns, _, _ := SnapshotSocketMaps()
+	for _, baseConn := range baseConns {
 		if baseConn.KeyFirstUseAt == nil {
 			continue
 		}
@@ -275,7 +325,8 @@ func SwitchToPrivateMode() {
 		"type":   check,
 		"result": "Service switched to private mode, please reconnect using key",
 	})
-	for _, baseConn := range BaseSocketsMap {
+	baseConns, _, _ := SnapshotSocketMaps()
+	for _, baseConn := range baseConns {
 		if !baseConn.Unlimited {
 			_ = sendPacket(baseConn.Conn, sendData)
 			_ = baseConn.Conn.Close()
@@ -283,7 +334,8 @@ func SwitchToPrivateMode() {
 	}
 }
 func UpdateConnPlanTypeCache(pt types.PlanTypeDto) {
-	for _, baseConn := range BaseSocketsMap {
+	baseConns, _, _ := SnapshotSocketMaps()
+	for _, baseConn := range baseConns {
 		if baseConn.PlanType == nil || baseConn.PlanType.Id != pt.Id {
 			continue
 		}
@@ -295,7 +347,8 @@ func StopPlanKeyConn(key string) {
 		"type":   check,
 		"result": "The current key has been deactivated",
 	})
-	for _, baseConn := range BaseSocketsMap {
+	baseConns, _, _ := SnapshotSocketMaps()
+	for _, baseConn := range baseConns {
 		if baseConn.AccessKey == nil {
 			continue
 		}
@@ -307,14 +360,10 @@ func StopPlanKeyConn(key string) {
 }
 func UpdateRateLimitConfig() {
 	config := types.AppConfig.Forward
-
-	sktList := make([]*types.SocketInfo, 0, len(DataSyncSocketsMap)+len(SendFileConnMap))
-	for _, skt := range DataSyncSocketsMap {
-		sktList = append(sktList, skt)
-	}
-	for _, skt := range SendFileConnMap {
-		sktList = append(sktList, skt)
-	}
+	baseSockets, dataSyncSockets, fileSyncSockets := SnapshotSocketMaps()
+	sktList := make([]*types.SocketInfo, 0, len(dataSyncSockets)+len(fileSyncSockets))
+	sktList = append(sktList, dataSyncSockets...)
+	sktList = append(sktList, fileSyncSockets...)
 	//白名单设备
 	unlimitedDevIds := types.AppConfig.GetUnlimitedDeviceIds()
 	for _, item := range config.UnlimitedDevices {
@@ -322,7 +371,7 @@ func UpdateRateLimitConfig() {
 		unlimitedDevIds = append(unlimitedDevIds, devId)
 	}
 	newRate := *config.FileTransferLimit.Rate
-	for _, skt := range BaseSocketsMap {
+	for _, skt := range baseSockets {
 		selfId := skt.Self.DevId
 		skt.Unlimited = slices.Contains(unlimitedDevIds, selfId)
 	}
@@ -336,19 +385,9 @@ func UpdateRateLimitConfig() {
 		//判断是否需要限速: 双方都不是白名单且启用了速率限制
 		unlimited = unlimited || !config.FileTransferLimit.Enabled
 		if unlimited {
-			if skt.LimitedWriter != nil {
-				skt.LimitedWriter.UpdateLimit(0)
-			}
-			if skt.LimitedWriter != nil {
-				skt.LimitedWriter.UpdateLimit(0)
-			}
+			skt.UpdateRateLimit(0)
 		} else {
-			if skt.LimitedWriter != nil {
-				skt.LimitedWriter.UpdateLimit(newRate * 1024)
-			}
-			if skt.LimitedWriter != nil {
-				skt.LimitedWriter.UpdateLimit(newRate * 1024)
-			}
+			skt.UpdateRateLimit(newRate * 1024)
 		}
 	}
 }
