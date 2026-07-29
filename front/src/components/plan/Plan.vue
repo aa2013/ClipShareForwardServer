@@ -77,6 +77,9 @@
           <v-btn :color="plan?.enable ? 'red' : 'primary'" @click="switchStatus" :loading="switching" :prepend-icon="plan?.enable ? 'mdi-stop-circle-outline' : 'mdi-check-circle-outline'">
             {{ plan?.enable ? t('plans.clickToDisable') : t('plans.clickToEnable') }}
           </v-btn>
+          <v-btn color="red" prepend-icon="mdi-delete-outline" @click="onDeleteClick" :disable="plan?.enable">
+            {{ t('common.delete') }}
+          </v-btn>
         </v-card-actions>
       </div>
     </v-slide-y-reverse-transition>
@@ -127,5 +130,15 @@ const switchStatus = () => {
 const genKey = () => {
   if (!plan.value?.enable) return
   showGenKeyDialog.value = true
+}
+
+const onDeleteClick = () => {
+  if (window.confirm(t('common.delete'))) {
+    planReq.deletePlan(plan.value!.id!).then(res => {
+      showSnackbar({
+        text: res ? t('common.success') : t('common.operationFailed'),
+      }, !res)
+    })
+  }
 }
 </script>
