@@ -44,3 +44,11 @@ export const generatePlanKeys = (id: string, size: number) => {
     }
   }) as unknown as Promise<boolean>
 }
+
+export const deletePlan = (id: string) => {
+  return request({
+    url: `${controller}/delete`,
+    method: 'post',
+    data: { id }
+  }) as unknown as Promise<boolean>
+}

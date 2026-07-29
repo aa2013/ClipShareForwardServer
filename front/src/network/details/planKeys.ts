@@ -27,3 +27,11 @@ export const verify = (key: string) => {
     }
   }) as unknown as Promise<PlanType | undefined>
 }
+
+export const deletePlanKey = (id: number) => {
+  return request({
+    url: `${controller}/delete`,
+    method: 'POST',
+    data: { id }
+  }) as unknown as Promise<boolean>
+}
